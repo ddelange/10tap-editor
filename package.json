@@ -179,7 +179,8 @@
   },
   "eslintIgnore": [
     "node_modules/",
-    "lib/"
+    "lib/",
+    "src/simpleWebEditor/build/"
   ],
   "prettier": {
     "quoteProps": "consistent",
