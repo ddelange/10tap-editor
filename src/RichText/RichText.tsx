@@ -12,7 +12,6 @@ import { type EditorMessage } from '../types/Messaging';
 import { useKeyboard } from '../utils';
 import type { EditorBridge } from '../types';
 import { getInjectedJS, getInjectedJSBeforeContentLoad } from './utils';
-import { isFabric } from '../utils/misc';
 import { CoreEditorActionType } from '../bridges/core';
 
 interface RichTextProps extends WebViewProps {
@@ -48,15 +47,18 @@ export const RichText = ({
   ...props
 }: RichTextProps) => {
   const [editorHeight, setEditorHeight] = useState(0);
-  const [key, setKey] = useState('webview');
-  const [loaded, setLoaded] = useState(isFabric());
   const { keyboardHeight, isKeyboardUp } = useKeyboard();
-  const source: WebViewProps['source'] = editor.DEV
-    ? { uri: editor.DEV_SERVER_URL || DEV_SERVER_URL }
-    : {
-        html: editor.customSource || editorHtml,
-        baseUrl: editor.webviewBaseURL,
-      };
+
+  // Embed init variables directly in the HTML as an inline <script> to avoid
+  // the Fabric race condition where injectedJavaScriptBeforeContentLoaded
+  // may not execute before the WebView HTML loads.
+  // See https://github.com/10play/10tap-editor/issues/343
+  const sourceHtml = useMemo(() => {
+    if (editor.DEV) return undefined;
+    const baseHtml = editor.customSource || editorHtml;
+    const initJS = getInjectedJSBeforeContentLoad(editor);
+    return baseHtml.replace('<body>', `<body>\n<script>${initJS}</script>`);
+  }, [editor]);
 
   const onWebviewMessage = (event: WebViewMessageEvent) => {
     onMessage && onMessage(event);
@@ -124,17 +126,16 @@ export const RichText = ({
       )}
       <WebView
         scrollEnabled={false}
-        key={key}
-        style={[
-          RichTextStyles.fullScreen,
-          { display: loaded ? 'flex' : 'none' },
-          editor.theme.webview,
-        ]}
+        style={[RichTextStyles.fullScreen, editor.theme.webview]}
         containerStyle={[
           editor.theme.webviewContainer,
           { height: editor.dynamicHeight ? editorHeight : undefined },
         ]}
-        source={source}
+        source={
+          editor.DEV
+            ? { uri: editor.DEV_SERVER_URL || DEV_SERVER_URL }
+            : { html: sourceHtml!, baseUrl: editor.webviewBaseURL }
+        }
         injectedJavaScript={injectedJavaScript}
         injectedJavaScriptBeforeContentLoaded={getInjectedJSBeforeContentLoad(
           editor
@@ -145,16 +146,6 @@ export const RichText = ({
         webviewDebuggingEnabled={__DEV__}
         keyboardDisplayRequiresUserAction={false}
         {...props}
-        // Propagated Props
-        onLoad={(e) => {
-          setLoaded(true);
-          // This is a workaround for iOS to make sure the webview is loaded
-          // See https://github.com/react-native-webview/react-native-webview/issues/3578
-          if (Platform.OS === 'ios' && key === 'webview') {
-            setKey('webview_reloaded');
-          }
-          props.onLoad && props.onLoad(e);
-        }}
       />
     </>
   );
